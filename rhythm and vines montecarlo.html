@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Rhythm and Vines 5-Year Profit — Monte Carlo</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.min.js"></script>
+<style>
+body{font-family:-apple-system,Segoe UI,Arial,sans-serif;font-size:14px;color:#1a1a1a;max-width:960px;margin:24px auto;padding:0 16px}
+h1{font-size:20px}
+.formula{font-family:monospace;font-size:12.5px;background:#f5f5f5;border:1px solid #ccc;padding:10px 12px;margin:12px 0;white-space:pre}
+table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:20px}
+th,td{border:1px solid #ccc;padding:6px 8px;text-align:left}
+th{background:#f0f0f0}
+td.desc{color:#555;font-size:12px}
+input[type=number]{width:90px;font-family:monospace;padding:3px 4px;border:1px solid #999}
+.controls{display:flex;gap:16px;align-items:flex-end;padding:12px 0 20px;border-bottom:1px solid #ccc;margin-bottom:20px}
+.controls label{font-size:12px;display:block;margin-bottom:4px}
+button{background:#1a1a1a;color:#fff;border:none;font-size:13px;padding:8px 16px;cursor:pointer}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1px;background:#ccc;border:1px solid #ccc;margin-bottom:24px}
+.stat{background:#fff;padding:10px 12px}
+.stat .l{font-size:11px;color:#555}
+.stat .v{font-size:18px;font-weight:600}
+.neg{color:#a02020}
+canvas{max-height:320px}
+</style></head>
+<body>
+<h1>Rhythm and Vines 5-Year Profit — Monte Carlo Simulator</h1>
+<p>Each variable is sampled from a triangular distribution and run through the formula below.</p>
+<div class="formula">Year0 = (n·Tavg + s + Cspend) − (n·Fticket + (11.3n+10000) + a + e + p + L + v)
+Profit5years = Year0 × (1+i1)(1+i2)(1+i3)(1+i4)(1+i5)</div>
+
+<table><thead><tr><th>Variable</th><th>Description</th><th>Min</th><th>Likely</th><th>Max</th></tr></thead><tbody id="vars"></tbody></table>
+
+<div class="controls">
+  <div><label>Trials</label><input id="trials" type="number" value="10000" step="1000" style="width:110px"></div>
+  <button id="run">Run simulation</button>
+</div>
+
+<div id="results" style="display:none">
+  <div class="stats" id="statRow"></div>
+  <h3>Distribution of 5-year profit</h3><canvas id="hist"></canvas>
+  <h3>Percentile band (P5 – P95)</h3><canvas id="fan" style="max-height:100px"></canvas>
+</div>
+
+<script>
+const vars=[
+ ['n','Attendees','Total festival attendees',3000,5000,8000,100],
+ ['Tavg','Avg. ticket revenue','$ per attendee (blended ticket/camping mix)',80,120,180,1],
+ ['Cspend','Customer spend','Total $ on-site spend (food, merch, etc.)',20000,50000,90000,1000],
+ ['s','Sponsorship','Total sponsorship $ secured',10000,30000,60000,1000],
+ ['Fticket','Ticketing fee','$ fee per ticket sold',3,5,8,0.5],
+ ['a','Artist/production costs','Total $ artist & production costs',50000,100000,200000,5000],
+ ['e','Environmental/clean-up','Total $ clean-up cost',5000,10000,20000,500],
+ ['p','Permits & licences','Total $ permits/licence fees',2000,5000,10000,500],
+ ['L','Labour costs','Total $ staffing/labour',20000,40000,70000,1000],
+ ['v','Food supply/vendors','Total $ paid to vendors/suppliers',10000,20000,40000,1000],
+ ['i','Inflation','Annual inflation rate, redrawn independently for each of the 5 years',0.02,0.03,0.06,0.005],
+];
+const varsEl=document.getElementById('vars');
+vars.forEach(([k,label,desc,mn,mo,mx,st])=>{
+  varsEl.insertAdjacentHTML('beforeend',
+    `<tr><td><strong>${k} — ${label}</strong></td><td class="desc">${desc}</td>
+     <td><input type="number" step="${st}" value="${mn}" id="${k}_min"></td>
+     <td><input type="number" step="${st}" value="${mo}" id="${k}_mode"></td>
+     <td><input type="number" step="${st}" value="${mx}" id="${k}_max"></td></tr>`);
+});
+
+const tri=(a,c,b)=>{const u=Math.random(),fc=(c-a)/(b-a);
+  return u<fc ? a+Math.sqrt(u*(b-a)*(c-a)) : b-Math.sqrt((1-u)*(b-a)*(b-c));};
+const range=k=>[+document.getElementById(k+'_min').value,+document.getElementById(k+'_mode').value,+document.getElementById(k+'_max').value];
+const fmt=x=>'$'+Math.round(x).toLocaleString();
+
+let histChart,fanChart;
+document.getElementById('run').onclick=()=>{
+  const trials=Math.max(1000,+document.getElementById('trials').value||10000);
+  const R={}; vars.forEach(([k])=>R[k]=range(k));
+
+  const results=Array.from({length:trials},()=>{
+    const n=tri(...R.n),Tavg=tri(...R.Tavg),Cspend=tri(...R.Cspend),s=tri(...R.s),
+      Fticket=tri(...R.Fticket),a=tri(...R.a),e=tri(...R.e),p=tri(...R.p),L=tri(...R.L),v=tri(...R.v);
+    const revenue=n*Tavg+s+Cspend;
+    const costs=n*Fticket+(11.3*n+10000)+a+e+p+L+v;
+    let profit=revenue-costs;
+    for(let y=0;y<5;y++) profit*=(1+tri(...R.i));
+    return profit;
+  }).sort((a,b)=>a-b);
+
+  const mean=results.reduce((s,x)=>s+x,0)/trials;
+  const std=Math.sqrt(results.reduce((s,x)=>s+(x-mean)**2,0)/trials);
+  const pct=q=>results[Math.floor(q*trials)];
+  const [p5,p10,p50,p90,p95]=[0.05,0.10,0.50,0.90,0.95].map(pct);
+  const probLoss=results.filter(x=>x<0).length/trials;
+
+  document.getElementById('statRow').innerHTML=[
+    ['Mean profit',mean],['Median (P50)',p50],['Std. deviation',std],
+    ['P10 (downside)',p10],['P90 (upside)',p90]
+  ].map(([l,v])=>`<div class="stat"><div class="l">${l}</div><div class="v ${v<0?'neg':''}">${fmt(v)}</div></div>`).join('')
+  +`<div class="stat"><div class="l">P(loss)</div><div class="v neg">${(probLoss*100).toFixed(1)}%</div></div>`;
+
+  const bins=40,min=results[0],max=results[trials-1],w=(max-min)/bins||1;
+  const counts=new Array(bins).fill(0);
+  results.forEach(x=>counts[Math.min(bins-1,Math.max(0,Math.floor((x-min)/w)))]++);
+  const labels=counts.map((_,idx)=>fmt(min+idx*w));
+  const colors=counts.map((_,idx)=>(min+idx*w)<0?'#999':'#1a1a1a');
+
+  histChart?.destroy();
+  histChart=new Chart(document.getElementById('hist'),{type:'bar',
+    data:{labels,datasets:[{data:counts,backgroundColor:colors}]},
+    options:{plugins:{legend:{display:false}},
+      scales:{x:{ticks:{maxTicksLimit:8,font:{size:10}},grid:{color:'#e5e5e5'}},
+              y:{ticks:{font:{size:10}},grid:{color:'#e5e5e5'}}}}});
+
+  fanChart?.destroy();
+  fanChart=new Chart(document.getElementById('fan'),{type:'bar',
+    data:{labels:['5-year profit range'],datasets:[
+      {data:[p5],backgroundColor:'rgba(0,0,0,0)'},
+      {data:[p95-p5],backgroundColor:'#bbb',base:p5}]},
+    options:{indexAxis:'y',plugins:{legend:{display:false},
+      tooltip:{callbacks:{label:()=>`P5 ${fmt(p5)} · P50 ${fmt(p50)} · P95 ${fmt(p95)}`}}},
+      scales:{x:{grid:{color:'#e5e5e5'}},y:{grid:{display:false},stacked:true}}}});
+
+  document.getElementById('results').style.display='block';
+};
+document.getElementById('run').click();
+</script>
+</body></html>
