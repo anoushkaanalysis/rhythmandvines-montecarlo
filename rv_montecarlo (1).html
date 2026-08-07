@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>R&V Annual Profit — Monte Carlo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#F6F3EC; --card:#FFFDF7; --ink:#1B1826; --muted:#6E6880;
+    --line:#DFD9CB; --violet:#6D5BD0; --violet-deep:#4A3D9E; --violet-soft:#EEEAFB;
+    --amber:#B97D14; --amber-soft:#F7EBD3; --loss:#B54233; --gain:#2E7D5B;
+    --focus:#4A3D9E;
+  }
+  *{box-sizing:border-box; margin:0;}
+  html{scroll-behavior:smooth;}
+  @media (prefers-reduced-motion: reduce){ html{scroll-behavior:auto;} *{transition:none !important;} }
+  body{
+    background:var(--paper); color:var(--ink);
+    font-family:'Archivo', system-ui, sans-serif; font-size:15px; line-height:1.5;
+    padding:0 20px 80px;
+  }
+  .wrap{max-width:1020px; margin:0 auto;}
+  a{color:var(--violet-deep);}
+
+  header{padding:44px 0 8px;}
+  .eyebrow{
+    font-family:'IBM Plex Mono', monospace; font-size:12px; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--violet-deep);
+  }
+  h1{
+    font-family:'Anton', sans-serif; font-weight:400; text-transform:uppercase;
+    font-size:clamp(34px, 6vw, 58px); line-height:1.02; letter-spacing:.01em; margin:8px 0 10px;
+  }
+  h1 .hl{color:var(--violet);}
+  .sub{color:var(--muted); max-width:68ch;}
+
+  /* formula strip — the model's structure, colour-coded to the report */
+  .formula-card{
+    background:var(--ink); color:#F3F0E7; border-radius:14px;
+    padding:22px 24px 18px; margin:26px 0 8px;
+  }
+  .formula{
+    font-family:'IBM Plex Mono', monospace; font-size:clamp(13px, 2.1vw, 17px);
+    line-height:1.9; overflow-x:auto; white-space:nowrap; padding-bottom:4px;
+  }
+  .formula .rev{color:#B7A8FF; font-weight:600;}
+  .formula .cost{color:#F3F0E7; font-weight:600;}
+  .formula .strat{color:#EFC271; font-weight:600;}
+  .formula .infl{color:#B7A8FF; border-bottom:2px solid #B7A8FF; font-weight:600;}
+  .formula .op{color:#9A93A8;}
+  .formula-line2{
+    font-family:'IBM Plex Mono', monospace; font-size:12.5px; color:#B7B0C2; margin-top:8px;
+  }
+  .formula-line2 .strat{color:#EFC271;}
+  .legend{display:flex; flex-wrap:wrap; gap:16px; margin-top:14px; font-size:12px; color:#B7B0C2;}
+  .legend span{display:inline-flex; align-items:center; gap:6px;}
+  .dot{width:9px; height:9px; border-radius:50%; display:inline-block;}
+  .dot.rev{background:#B7A8FF;} .dot.cost{background:#F3F0E7;} .dot.strat{background:#EFC271;}
+
+  .sec{
+    font-family:'Anton', sans-serif; font-weight:400; text-transform:uppercase;
+    font-size:19px; letter-spacing:.03em; margin:34px 0 12px;
+    display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;
+  }
+  .sec small{
+    font-family:'Archivo', sans-serif; text-transform:none; letter-spacing:0;
+    font-size:13px; color:var(--muted); font-weight:400;
+  }
+
+  .controls{
+    background:var(--card); border:1px solid var(--line); border-radius:14px;
+    padding:18px 20px; display:flex; flex-wrap:wrap; gap:18px 26px; align-items:flex-end;
+  }
+  .field{display:flex; flex-direction:column; gap:5px;}
+  .field label{font-size:12px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--muted);}
+  select, input[type=number], input[type=text]{
+    font-family:'IBM Plex Mono', monospace; font-size:14px; color:var(--ink);
+    background:#fff; border:1px solid var(--line); border-radius:8px; padding:8px 10px;
+  }
+  select:focus-visible, input:focus-visible, button:focus-visible{
+    outline:2px solid var(--focus); outline-offset:2px;
+  }
+  .check{display:flex; align-items:center; gap:8px; font-size:14px; padding-bottom:6px;}
+  .check input{width:16px; height:16px; accent-color:var(--violet);}
+  .radios{display:flex; gap:14px; padding-bottom:6px;}
+  .radios label{display:flex; align-items:center; gap:6px; font-size:14px;}
+  .radios input{accent-color:var(--violet);}
+  .btn{
+    font-family:'Archivo', sans-serif; font-weight:700; font-size:14px;
+    border-radius:9px; padding:11px 20px; cursor:pointer; border:1px solid transparent;
+  }
+  .btn-run{background:var(--violet); color:#fff;}
+  .btn-run:hover{background:var(--violet-deep);}
+  .btn-ghost{background:transparent; color:var(--ink); border-color:var(--line);}
+  .btn-ghost:hover{border-color:var(--ink);}
+  .btn[disabled]{opacity:.5; cursor:default;}
+  .controls .grow{flex:1;}
+
+  .progress{height:6px; background:var(--line); border-radius:3px; overflow:hidden; margin-top:14px; display:none;}
+  .progress .bar{height:100%; width:0%; background:var(--violet); transition:width .1s linear;}
+  .runmeta{font-family:'IBM Plex Mono', monospace; font-size:12px; color:var(--muted); margin-top:8px; min-height:16px;}
+
+  .recon{
+    margin-top:14px; font-family:'IBM Plex Mono', monospace; font-size:13px;
+    display:none; padding:10px 14px; border-radius:9px;
+    background:#EAF3EE; border:1px solid #BFDCCB; color:#1E5A41;
+  }
+  .recon.fail{background:#F8E9E5; border-color:#E3BBB1; color:#8A2F21;}
+
+  .vargroup{background:var(--card); border:1px solid var(--line); border-radius:14px; overflow:hidden; margin-bottom:14px;}
+  .vargroup h3{
+    font-size:13px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;
+    padding:12px 18px; border-bottom:1px solid var(--line); display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+  }
+  .vargroup h3 .tag{font-weight:400; text-transform:none; letter-spacing:0; color:var(--muted); font-size:12px;}
+  .vargroup.g-rev h3{color:var(--violet-deep); background:var(--violet-soft);}
+  .vargroup.g-cost h3{color:var(--ink); background:#F1EEE5;}
+  .vargroup.g-strat h3{color:var(--amber); background:var(--amber-soft);}
+  .vargroup.g-tail h3{color:var(--ink); background:#F1EEE5;}
+  .tbl{width:100%; border-collapse:collapse;}
+  .tbl th, .tbl td{padding:9px 12px; text-align:left; font-size:13.5px;}
+  .tbl th{
+    font-family:'IBM Plex Mono', monospace; font-size:11px; letter-spacing:.08em;
+    text-transform:uppercase; color:var(--muted); border-bottom:1px solid var(--line); font-weight:500;
+  }
+  .tbl td{border-bottom:1px solid #EFEBE0;}
+  .tbl tr:last-child td{border-bottom:none;}
+  .tbl .sym{font-family:'IBM Plex Mono', monospace; font-weight:600; width:34px;}
+  .tbl .sym.plansym{color:var(--amber);}
+  .tbl .unit{color:var(--muted); font-family:'IBM Plex Mono', monospace; font-size:12px; white-space:nowrap;}
+  .tbl input{width:96px; padding:6px 8px;}
+  .tbl .desc{min-width:200px;}
+  .tbl .anchor{color:var(--muted); font-size:12px; min-width:170px;}
+  .tbl tr.badrow td{background:#F8E9E5;}
+  .tbl tr.off td{opacity:.45;}
+  .tablewrap{overflow-x:auto;}
+  .err{color:var(--loss); font-size:13px; margin:4px 2px 0; min-height:18px;}
+
+  .cards{display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:12px;}
+  .stat{
+    background:var(--card); border:1px solid var(--line); border-radius:13px; padding:14px 16px;
+  }
+  .stat .k{font-size:11px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; color:var(--muted);}
+  .stat .v{font-family:'IBM Plex Mono', monospace; font-size:clamp(17px, 2.4vw, 22px); font-weight:600; margin-top:4px;}
+  .stat .v.neg{color:var(--loss);} .stat .v.pos{color:var(--gain);}
+  .chart-card{background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px; margin-top:14px;}
+  .chart-card canvas{width:100%; height:280px; display:block;}
+  .chart-cap{font-size:12.5px; color:var(--muted); margin-top:10px; font-family:'IBM Plex Mono', monospace;}
+  .results-actions{margin-top:14px; display:flex; gap:12px; align-items:center;}
+  .copied{font-size:13px; color:var(--gain); display:none;}
+
+  .notes{border-top:1px solid var(--line); margin-top:40px; padding-top:18px; color:var(--muted); font-size:13.5px;}
+  .notes p{margin-bottom:9px; max-width:88ch;}
+  .notes b{color:var(--ink);}
+  .notes code{font-family:'IBM Plex Mono', monospace; font-size:12.5px; color:var(--ink);}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">NSSCC 2026 · Rhythm &amp; Vines · Finance model v3</div>
+  <h1>Annual profit — <span class="hl">Monte Carlo</span></h1>
+  <p class="sub">Each variable is drawn from a triangular distribution (min · likely · max) and run through the profit
+  formula below. Base revenue and case costs are centred on Exhibit 6; every financial claim our report makes —
+  the VinePoints spend uplift, category sponsor deals, the premium headliner and Live Nation Pipeline savings,
+  the R&amp;V Bands system, cancellation cover — is its own visible amber variable. Zero any one of them and rerun
+  to stress-test that claim. Presets follow the report's implementation roadmap. With the plan zeroed and case
+  inputs, the model reproduces Exhibit 6 exactly ($20.0M / $17.6M / $2.4M).</p>
+</header>
+
+<div class="formula-card">
+  <div class="formula">
+    Profit <span class="op">=</span> <span class="rev">n</span><span class="op">·(</span><span class="rev">t</span> <span class="op">+</span> <span class="rev">c</span> <span class="op">+</span> <span class="strat">u</span><span class="op">)</span> <span class="op">+</span> <span class="rev">S</span> <span class="op">+</span> <span class="strat">D</span> <span class="op">−</span> <span class="op">(1 +</span> <span class="infl">i</span><span class="op">) × [</span> <span class="cost">A</span> <span class="op">+</span> <span class="cost">P</span> <span class="op">+</span> <span class="cost">W</span> <span class="op">+</span> <span class="cost">M</span> <span class="op">+</span> <span class="cost">I</span> <span class="op">+</span> <span class="strat">H</span> <span class="op">−</span> <span class="strat">Q</span> <span class="op">+</span> <span class="strat">B</span> <span class="op">+</span> <span class="strat">E</span> <span class="op">+</span> <span class="strat">V</span> <span class="op">+</span> <span class="cost">n·o</span> <span class="op">]</span>
+  </div>
+  <div class="formula-line2">with probability p<sub>c</sub> the edition is cancelled &nbsp;→&nbsp; Profit = −L (insured) &nbsp;·&nbsp; −U (uninsured, <span class="strat">V</span> not paid)</div>
+  <div class="legend">
+    <span><i class="dot rev"></i>Base revenue</span>
+    <span><i class="dot cost"></i>Case costs, centred on Exhibit 6</span>
+    <span><i class="dot strat"></i>The plan — Proposal 1 (Bands + VinePoints) · Proposal 2 (Pipeline) · resilience</span>
+    <span><i class="dot strat" style="border-radius:0;height:2px;width:14px;"></i>Q enters as a saving · inflation applies to costs only</span>
+  </div>
+</div>
+
+<div class="sec">Run <small>1,000,000 trials by default · presets mirror the report's implementation steps 1–4 · leave seed blank for fresh randomness, set it to reproduce a run</small></div>
+
+<div class="controls">
+  <div class="field">
+    <label for="preset">Scenario preset</label>
+    <select id="preset">
+      <option value="statusquo">Status quo · case baseline</option>
+      <option value="pilot2026">2026 · Pilot year (step 1)</option>
+      <option value="full2028" selected>2027–28 · Full deployment (steps 2–3)</option>
+      <option value="expand2029">2029–30 · Expansion, 22k consent (step 4)</option>
+    </select>
+  </div>
+  <div class="field">
+    <label for="trials">Trials</label>
+    <input type="number" id="trials" value="1000000" min="1000" max="5000000" step="1000">
+  </div>
+  <div class="field">
+    <label for="seed">Seed (optional)</label>
+    <input type="text" id="seed" placeholder="random" inputmode="numeric" size="9">
+  </div>
+  <div class="check">
+    <input type="checkbox" id="branch" checked>
+    <label for="branch" style="text-transform:none;font-size:14px;color:var(--ink);font-weight:500;">Cancellation branch</label>
+  </div>
+  <div class="radios" role="radiogroup" aria-label="Insurance">
+    <label><input type="radio" name="ins" value="insured" checked> Insured</label>
+    <label><input type="radio" name="ins" value="uninsured"> Uninsured</label>
+  </div>
+  <div class="grow"></div>
+  <button class="btn btn-ghost" id="reconBtn">Check against Exhibit 6</button>
+  <button class="btn btn-ghost" id="resetBtn">Reset to spec defaults</button>
+  <button class="btn btn-run" id="runBtn">Run simulation</button>
+</div>
+<div class="progress" id="progress"><div class="bar" id="bar"></div></div>
+<div class="runmeta" id="runmeta"></div>
+<div class="err" id="err" role="alert"></div>
+<div class="recon" id="recon"></div>
+
+<div class="sec">Variables <small>edit any value, then run again — triangular min ≤ likely ≤ max · amber rows are the plan's claims: set one to 0 / 0 / 0 to test the strategy without it</small></div>
+<div id="vars"></div>
+
+<div class="sec">Results <small id="resmeta"></small></div>
+<div class="cards" id="cards" aria-live="polite">
+  <div class="stat"><div class="k">Mean profit</div><div class="v" id="s-mean">—</div></div>
+  <div class="stat"><div class="k">Median profit</div><div class="v" id="s-median">—</div></div>
+  <div class="stat"><div class="k">Std deviation</div><div class="v" id="s-sd">—</div></div>
+  <div class="stat"><div class="k">P5</div><div class="v" id="s-p5">—</div></div>
+  <div class="stat"><div class="k">P95</div><div class="v" id="s-p95">—</div></div>
+  <div class="stat"><div class="k">P(loss)</div><div class="v" id="s-ploss">—</div></div>
+</div>
+<div class="chart-card">
+  <canvas id="hist" height="280" role="img" aria-label="Histogram of simulated annual profit"></canvas>
+  <div class="chart-cap" id="chartcap">Run the simulation to draw the profit distribution.</div>
+</div>
+<div class="results-actions">
+  <button class="btn btn-ghost" id="copyBtn" disabled>Copy summary</button>
+  <span class="copied" id="copied">Copied.</span>
+</div>
+
+<div class="notes">
+  <p><b>Presets ↔ the report's roadmap.</b> Step 1 (2026) pilots the app-based VinePoints, a partial Bands rollout, soil
+  testing and the first scorecard, with early category-sponsor conversations. Steps 2–3 (2027–28) deploy the full
+  Bands + VinePoints system, the first Pipeline-booked premium headliner, category deals, and cancellation cover.
+  Step 4 (2029–30) is the same plan at the expanded 22,000-camper consent. The status quo preset is the do-nothing
+  comparison.</p>
+  <p><b>Stress-testing a claim.</b> Every amber variable is one report claim. Doubt the Pipeline? Set <code>Q</code> to
+  0 / 0 / 0 and rerun. Doubt VinePoints? Zero <code>u</code>. The gap between runs is what that claim is worth.</p>
+  <p><b>Sampling.</b> Every variable is drawn independently from a triangular distribution via the inverse CDF.
+  A fixed seed makes the whole run reproducible; a blank seed draws a fresh one each run (the seed used is always shown).</p>
+  <p><b>Inflation applies to costs only.</b> Tickets are priced and largely sold before the cost year lands, so ticket-price
+  growth lives inside <code>t</code>'s range instead — indexing revenue by <code>i</code> as well would double-count.
+  This is what produces the margin squeeze.</p>
+  <p><b>Uninsured mode</b> removes the premium V from costs and takes the full uncovered loss −U if the edition cancels.</p>
+  <p><b>Reading the results.</b> Contribution per additional attendee ≈ (t + c + u) − o·(1+i) ≈ NZ$630, so every 1,000
+  extra consented attendees adds roughly $0.6M of annual profit — compare the full-deployment and expansion presets.
+  That difference is what the 20k→22k consent application is worth.</p>
+  <p><b>Consistency rule.</b> The formula printed in the report must match this page character for character.</p>
+</div>
+
+</div>
+<script>
+"use strict";
+/* ---------- variable registry ---------- */
+// scale converts the displayed unit into dollars (or raw value for n, %, per-head $)
+const VARS = [
+  // Revenue
+  {k:'n',  g:'rev',  sym:'n', label:'Attendees', unit:'people', scale:1,
+   anchor:"Exhibit 6 baseline = 26,000 (denominator behind t and o below); likely raised from Exhibit 2's 24,000 2026 projection to match"},
+  {k:'t',  g:'rev',  sym:'t', label:'Ticket + camping revenue per attendee', unit:'$ / head', scale:1,
+   anchor:'Exhibit 6 anchor $562 ($14.6M ÷ 26,000), exact — no price pass-through in the case baseline'},
+  {k:'c',  g:'rev',  sym:'c', label:'Base on-site spend per attendee', unit:'$ / head', scale:1,
+   anchor:'Exhibit 6: ($2.5M F&B + $0.5M add-ons) ÷ 26,000 ≈ $115'},
+  {k:'u',  g:'rev',  sym:'u', label:'VinePoints + cashless spend uplift per attendee', unit:'$ / head', scale:1, plan:true,
+   anchor:'Proposal 1 — c + u ⇒ ≈ $3.5M on-site spend at 24,000 attendees'},
+  {k:'S',  g:'rev',  sym:'S', label:'Base sponsorship &amp; partnerships', unit:'$M', scale:1e6,
+   anchor:'Exhibit 6: 2.4'},
+  {k:'D',  g:'rev',  sym:'D', label:'Category-entry sponsor deals', unit:'$M', scale:1e6, plan:true,
+   anchor:'Banking, insurance, telco entry categories + Halter partnership'},
+  // Case costs
+  {k:'A',  g:'cost', sym:'A', label:'Talent — headline, support, logistics', unit:'$M', scale:1e6, anchor:'Exhibit 6: 6.0'},
+  {k:'P',  g:'cost', sym:'P', label:'Production and site', unit:'$M', scale:1e6, anchor:'Exhibit 6: 4.4'},
+  {k:'o',  g:'cost', sym:'o', label:'Operations &amp; safety per attendee', unit:'$ / head', scale:1,
+   anchor:'Exhibit 6: $2.4M ÷ 26,000 ≈ $92 — scales with the crowd'},
+  {k:'W',  g:'cost', sym:'W', label:'Event workforce', unit:'$M', scale:1e6, anchor:'Exhibit 6: 1.4'},
+  {k:'Mk', g:'cost', sym:'M', label:'Marketing and ticketing fees', unit:'$M', scale:1e6, anchor:'Exhibit 6: 1.4'},
+  {k:'I',  g:'cost', sym:'I', label:'Insurance, overheads, contingency', unit:'$M', scale:1e6, anchor:'Exhibit 6: 2.0'},
+  // The plan
+  {k:'H',  g:'strat', sym:'H', label:'Premium international headliner', unit:'$M', scale:1e6, plan:true,
+   anchor:"Proposal 2 — the report's stated $0.5–1.0M range, verbatim"},
+  {k:'Q',  g:'strat', sym:'Q', label:'Live Nation Pipeline savings (subtracted)', unit:'$M', scale:1e6, plan:true,
+   anchor:'Proposal 2 — shared routing &amp; logistics across the Live Nation NZ summer window'},
+  {k:'B',  g:'strat', sym:'B', label:'R&amp;V Bands system, net of Halter funding', unit:'$M', scale:1e6, plan:true,
+   anchor:'Proposal 1 — hardware, app, drones, monitoring'},
+  {k:'E',  g:'strat', sym:'E', label:'Environmental &amp; licence programme', unit:'$M', scale:1e6, plan:true,
+   anchor:'Soil testing, drainage, scorecard, waste uplift → the consent case'},
+  {k:'V',  g:'strat', sym:'V', label:'Cancellation cover premium', unit:'$M', scale:1e6, plan:true,
+   anchor:'Buys the insured tail; zeroed in uninsured mode'},
+  // Inflation & cancellation
+  {k:'i',  g:'tail', sym:'i', label:'One-year cost inflation', unit:'%', scale:0.01,
+   anchor:'Stats NZ CPI 4.1% (yr to Jun-26 qtr); event costs run hotter'},
+  {k:'pc', g:'tail', sym:'p<sub>c</sub>', label:'Probability the edition is cancelled', unit:'%', scale:0.01, single:true,
+   anchor:'1 cancellation in 23 editions; rising weather risk'},
+  {k:'L',  g:'tail', sym:'L', label:'Insured net loss if cancelled', unit:'$M', scale:1e6,
+   anchor:'After parametric payout'},
+  {k:'U',  g:'tail', sym:'U', label:'Uninsured loss if cancelled', unit:'$M', scale:1e6,
+   anchor:'Committed talent, production, marketing (Section 7)'},
+];
+
+const GROUPS = [
+  {id:'rev',  cls:'g-rev',  title:'Revenue', tag:'amber rows are the plan&#39;s uplifts'},
+  {id:'cost', cls:'g-cost', title:'Case costs', tag:'likely values = Exhibit 6, exactly'},
+  {id:'strat',cls:'g-strat',title:'The plan', tag:'Proposal 1 · Proposal 2 · resilience — Q enters as a saving'},
+  {id:'tail', cls:'g-tail', title:'Inflation &amp; cancellation', tag:''},
+];
+
+/* ---------- presets = the report's implementation roadmap (display units) ---------- */
+const PRESETS = {
+  statusquo: {
+    label:'Status quo · case baseline', insured:false, branch:false,
+    v:{ n:[24250,26000,27750], t:[535,562,589], c:[105,115,125], u:[0,0,0],
+        S:[2.15,2.4,2.65], D:[0,0,0],
+        A:[5.5,6.0,6.5], P:[4.0,4.4,4.8], o:[82,92,102], W:[1.25,1.4,1.55],
+        Mk:[1.275,1.4,1.525], I:[1.8,2.0,2.2],
+        H:[0,0,0], Q:[0,0,0], B:[0,0,0], E:[0,0,0], V:[0,0,0],
+        i:[0,0,0], pc:[5,5,5], L:[2.0,3.0,4.5], U:[7,9,11] }
+  },
+  pilot2026: { label:'2026 · Pilot year (step 1)', insured:false, branch:true, v:null },
+  full2028:  { label:'2027–28 · Full deployment (steps 2–3)', insured:true, branch:true, v:null },
+  expand2029:{ label:'2029–30 · Expansion, 22k consent (step 4)', insured:true, branch:true, v:null },
+};
+const cloneV = o => JSON.parse(JSON.stringify(o));
+PRESETS.full2028.v = cloneV(PRESETS.statusquo.v);
+Object.assign(PRESETS.full2028.v, {
+  t:[540,580,620], u:[10,30,45], D:[0.1,0.3,0.8], i:[2.5,4.0,6.0],
+  H:[0.5,0.75,1.0], Q:[0.1,0.3,0.5], B:[0.15,0.3,0.55], E:[0.25,0.4,0.65], V:[0.3,0.5,0.8]
+});
+PRESETS.pilot2026.v = cloneV(PRESETS.statusquo.v);
+Object.assign(PRESETS.pilot2026.v, {
+  u:[0,10,20], D:[0,0.1,0.3], B:[0.05,0.15,0.3], E:[0.15,0.25,0.4], i:[2.5,4.0,6.0]
+});
+PRESETS.expand2029.v = cloneV(PRESETS.full2028.v);
+PRESETS.expand2029.v.n = [24000,26500,28000]; // 22k camper consent; max = historical peak
+
+/* ---------- build variable tables ---------- */
+const varsEl = document.getElementById('vars');
+function buildTables(){
+  varsEl.innerHTML = GROUPS.map(gr => {
+    const rows = VARS.filter(v=>v.g===gr.id).map(v=>{
+      const cell = m => v.single && m!=='likely'
+        ? '<td class="unit">—</td>'
+        : `<td><input type="number" step="any" id="${v.k}-${m}" aria-label="${v.label} ${m}"></td>`;
+      return `<tr id="row-${v.k}">
+        <td class="sym${v.plan?' plansym':''}">${v.sym}</td>
+        <td class="desc">${v.label}</td>
+        <td class="unit">${v.unit}</td>
+        ${cell('min')}${cell('likely')}${cell('max')}
+        <td class="anchor">${v.anchor}</td>
+      </tr>`;
+    }).join('');
+    return `<div class="vargroup ${gr.cls}">
+      <h3>${gr.title}${gr.tag?` <span class="tag">${gr.tag}</span>`:''}</h3>
+      <div class="tablewrap"><table class="tbl">
+        <thead><tr><th></th><th>Variable</th><th>Unit</th><th>Min</th><th>Likely</th><th>Max</th><th>Anchor</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+    </div>`;
+  }).join('');
+}
+buildTables();
+
+function loadPreset(name){
+  const p = PRESETS[name];
+  for(const v of VARS){
+    const [mn,lk,mx] = p.v[v.k];
+    if(v.single){ document.getElementById(`${v.k}-likely`).value = lk; }
+    else{
+      document.getElementById(`${v.k}-min`).value = mn;
+      document.getElementById(`${v.k}-likely`).value = lk;
+      document.getElementById(`${v.k}-max`).value = mx;
+    }
+  }
+  document.querySelector(`input[name=ins][value=${p.insured?'insured':'uninsured'}]`).checked = true;
+  $('branch').checked = !!p.branch;
+  syncRowStates();
+}
+
+function readVars(){
+  const out = {};
+  let bad = null;
+  for(const v of VARS){
+    const row = document.getElementById(`row-${v.k}`);
+    row.classList.remove('badrow');
+    if(v.single){
+      const lk = parseFloat(document.getElementById(`${v.k}-likely`).value);
+      if(!isFinite(lk) || lk<0){ bad = bad||v; row.classList.add('badrow'); continue; }
+      out[v.k] = [lk*v.scale, lk*v.scale, lk*v.scale];
+    }else{
+      const mn = parseFloat(document.getElementById(`${v.k}-min`).value);
+      const lk = parseFloat(document.getElementById(`${v.k}-likely`).value);
+      const mx = parseFloat(document.getElementById(`${v.k}-max`).value);
+      if(![mn,lk,mx].every(isFinite) || !(mn<=lk && lk<=mx)){ bad = bad||v; row.classList.add('badrow'); continue; }
+      out[v.k] = [mn*v.scale, lk*v.scale, mx*v.scale];
+    }
+  }
+  return {out, bad};
+}
+
+/* ---------- RNG + sampling ---------- */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;}}
+function triSample(rng,tri){
+  const [min,mode,max]=tri, range=max-min;
+  if(range<=0) return min;
+  const cc=(mode-min)/range, u=rng();
+  return u<cc ? min+Math.sqrt(u*range*(mode-min)) : max-Math.sqrt((1-u)*range*(max-mode));
+}
+
+/* ---------- simulation ---------- */
+const $ = id => document.getElementById(id);
+let running=false, lastSummary='';
+
+async function runSim(){
+  if(running) return;
+  $('err').textContent=''; $('recon').style.display='none';
+  const {out:v, bad} = readVars();
+  if(bad){ $('err').textContent = `Fix row ${bad.sym.replace(/<[^>]+>/g,'')} — values must be numbers with min ≤ likely ≤ max.`; return; }
+
+  const trials = Math.max(1000, Math.min(5e6, Math.round(parseFloat($('trials').value)||1e6)));
+  $('trials').value = trials;
+  const seedInput = $('seed').value.trim();
+  const seed = seedInput==='' ? (Math.random()*2**32)>>>0 : (parseInt(seedInput,10)>>>0);
+  const branch = $('branch').checked;
+  const insured = document.querySelector('input[name=ins]:checked').value==='insured';
+  const presetLabel = PRESETS[$('preset').value].label;
+
+  running=true; $('runBtn').disabled=true; $('runBtn').textContent='Running…';
+  $('progress').style.display='block'; $('bar').style.width='0%';
+  const t0 = performance.now();
+  const rng = mulberry32(seed);
+  const profits = new Float64Array(trials);
+  const pc = v.pc[1];
+  const CHUNK = 100000;
+
+  for(let start=0; start<trials; start+=CHUNK){
+    const end = Math.min(trials, start+CHUNK);
+    for(let k=start;k<end;k++){
+      if(branch && rng()<pc){
+        profits[k] = insured ? -triSample(rng,v.L) : -triSample(rng,v.U);
+        continue;
+      }
+      const n=triSample(rng,v.n), t=triSample(rng,v.t), c=triSample(rng,v.c), u=triSample(rng,v.u);
+      const S=triSample(rng,v.S), D=triSample(rng,v.D);
+      const A=triSample(rng,v.A), P=triSample(rng,v.P), o=triSample(rng,v.o);
+      const W=triSample(rng,v.W), Mk=triSample(rng,v.Mk), I=triSample(rng,v.I);
+      const H=triSample(rng,v.H), Q=triSample(rng,v.Q), B=triSample(rng,v.B), E=triSample(rng,v.E);
+      const V=insured ? triSample(rng,v.V) : 0;
+      const infl=triSample(rng,v.i);
+      profits[k] = n*(t+c+u) + S + D - (1+infl)*(A+P+W+Mk+I+H-Q+B+E+V + n*o);
+    }
+    $('bar').style.width = (end/trials*100).toFixed(0)+'%';
+    $('runmeta').textContent = `Sampling… ${end.toLocaleString()} / ${trials.toLocaleString()}`;
+    await new Promise(r=>setTimeout(r,0));
+  }
+
+  $('runmeta').textContent='Sorting and summarising…';
+  await new Promise(r=>setTimeout(r,0));
+  profits.sort();
+  let sum=0; for(let k=0;k<trials;k++) sum+=profits[k];
+  const mean=sum/trials;
+  let ss=0, losses=0;
+  for(let k=0;k<trials;k++){ const d=profits[k]-mean; ss+=d*d; if(profits[k]<0)losses++; }
+  const sd=Math.sqrt(ss/(trials-1));
+  const q=p=>profits[Math.min(trials-1,Math.floor(p*trials))];
+  const median=q(0.5), p5=q(0.05), p95=q(0.95), pLoss=losses/trials;
+  const ms=Math.round(performance.now()-t0);
+
+  setStat('s-mean',mean); setStat('s-median',median);
+  setStat('s-sd',sd,true); setStat('s-p5',p5); setStat('s-p95',p95);
+  const pl=$('s-ploss'); pl.textContent=(pLoss*100).toFixed(1)+'%';
+  pl.className='v '+(pLoss>0.5?'neg':pLoss<0.25?'pos':'');
+
+  const cfg=`${presetLabel} · ${insured?'insured':'uninsured'} · cancellation branch ${branch?'on':'off'}`;
+  $('resmeta').textContent = `${cfg} · ${trials.toLocaleString()} trials · seed ${seed} · ${ms}ms`;
+  drawHist(profits, mean, median);
+  $('chartcap').textContent = `Annual profit across ${trials.toLocaleString()} simulated editions · P5 ${fm(p5)} · P95 ${fm(p95)}`;
+
+  lastSummary = `R&V Monte Carlo — ${cfg}; ${trials.toLocaleString()} trials, seed ${seed}. `+
+    `Mean ${fm(mean)}; median ${fm(median)}; std dev ${fm(sd)}; P5 ${fm(p5)}; P95 ${fm(p95)}; P(loss) ${(pLoss*100).toFixed(1)}%.`;
+  $('copyBtn').disabled=false; $('copied').style.display='none';
+
+  $('progress').style.display='none'; $('runmeta').textContent='';
+  running=false; $('runBtn').disabled=false; $('runBtn').textContent='Run simulation';
+}
+
+function fm(x){
+  const s = x<0?'−':'';
+  return `${s}$${(Math.abs(x)/1e6).toFixed(2)}M`;
+}
+function setStat(id,val,absolute){
+  const el=$(id); el.textContent=fm(val);
+  el.className='v '+(absolute?'':(val<0?'neg':'pos'));
+}
+
+/* ---------- histogram ---------- */
+function drawHist(sorted, mean, median){
+  const cv=$('hist'), dpr=window.devicePixelRatio||1;
+  const cssW=cv.clientWidth, cssH=280;
+  cv.width=cssW*dpr; cv.height=cssH*dpr;
+  const ctx=cv.getContext('2d'); ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,cssW,cssH);
+
+  const n=sorted.length, lo=sorted[0], hi=sorted[n-1];
+  const span=(hi-lo)||1, BINS=72, counts=new Array(BINS).fill(0);
+  for(let k=0;k<n;k++){
+    let b=Math.floor((sorted[k]-lo)/span*BINS); if(b>=BINS)b=BINS-1;
+    counts[b]++;
+  }
+  const peak=Math.max(...counts);
+  const padL=8, padR=8, padT=10, padB=34;
+  const w=cssW-padL-padR, h=cssH-padT-padB, bw=w/BINS;
+  const x=val=>padL+(val-lo)/span*w;
+
+  if(lo<0 && hi>0){
+    ctx.strokeStyle='#B7B0C2'; ctx.setLineDash([4,4]); ctx.beginPath();
+    ctx.moveTo(x(0),padT); ctx.lineTo(x(0),padT+h); ctx.stroke(); ctx.setLineDash([]);
+  }
+  for(let b=0;b<BINS;b++){
+    const centre=lo+(b+0.5)/BINS*span;
+    ctx.fillStyle = centre<0 ? 'rgba(181,66,51,0.75)' : 'rgba(109,91,208,0.85)';
+    const bh=counts[b]/peak*h;
+    ctx.fillRect(padL+b*bw+0.5, padT+h-bh, Math.max(1,bw-1), bh);
+  }
+  const mark=(val,label,dash)=>{
+    ctx.strokeStyle='#1B1826'; ctx.setLineDash(dash?[5,4]:[]);
+    ctx.beginPath(); ctx.moveTo(x(val),padT); ctx.lineTo(x(val),padT+h); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle='#1B1826'; ctx.font='11px "IBM Plex Mono", monospace';
+    const tx=Math.min(Math.max(x(val)+4,padL),cssW-86);
+    ctx.fillText(`${label} ${fm(val)}`, tx, label==='mean'?padT+12:padT+26);
+  };
+  mark(mean,'mean',false); mark(median,'median',true);
+  ctx.fillStyle='#6E6880'; ctx.font='11px "IBM Plex Mono", monospace'; ctx.textAlign='center';
+  for(let tk=0;tk<=6;tk++){
+    const val=lo+tk/6*span;
+    ctx.fillText(fm(val), padL+tk/6*w, cssH-12);
+  }
+  ctx.textAlign='left';
+}
+
+/* ---------- reconstruction check ---------- */
+function reconstruct(){
+  const {out, bad} = readVars();
+  if(bad){ $('err').textContent = `Fix row ${bad.sym.replace(/<[^>]+>/g,'')} before checking against Exhibit 6.`; return; }
+  const n=out.n[1], t=out.t[1], c=out.c[1], u=out.u[1], S=out.S[1], D=out.D[1];
+  const A=out.A[1], P=out.P[1], o=out.o[1], W=out.W[1], Mk=out.Mk[1], I=out.I[1];
+  const H=out.H[1], Q=out.Q[1], B=out.B[1], E=out.E[1], V=out.V[1];
+  const R = n*(t+c+u)+S+D;
+  const C = A+P+W+Mk+I+H-Q+B+E+V + n*o;
+  const Pr = R-C;
+  const ok = Math.abs(R-20.0e6)<0.05e6 && Math.abs(C-17.6e6)<0.05e6 && Math.abs(Pr-2.4e6)<0.05e6;
+  const el=$('recon');
+  el.className='recon'+(ok?'':' fail'); el.style.display='block';
+  el.innerHTML = `${ok?'PASS':'CHECK'} — current "likely" inputs, no inflation or cancellation applied (those are separate tail-risk layers, not part of the Exhibit 6 point estimate): `+
+    `Revenue ${fm(R)} · Costs ${fm(C)} · Profit ${fm(Pr)} — Exhibit 6 target 20.0 / 17.6 / 2.4.`;
+}
+
+/* ---------- row enable/disable states ---------- */
+function syncRowStates(){
+  const branch=$('branch').checked;
+  const insured=document.querySelector('input[name=ins]:checked').value==='insured';
+  const setRow=(k,on)=>$(`row-${k}`).classList.toggle('off',!on);
+  setRow('pc',branch); setRow('L',branch&&insured); setRow('U',branch&&!insured);
+  setRow('V',insured);
+}
+
+/* ---------- wiring ---------- */
+$('runBtn').addEventListener('click',runSim);
+$('resetBtn').addEventListener('click',()=>{ loadPreset($('preset').value); $('err').textContent=''; });
+$('preset').addEventListener('change',e=>loadPreset(e.target.value));
+$('reconBtn').addEventListener('click',reconstruct);
+$('branch').addEventListener('change',syncRowStates);
+document.querySelectorAll('input[name=ins]').forEach(r=>r.addEventListener('change',syncRowStates));
+$('copyBtn').addEventListener('click',async()=>{
+  try{ await navigator.clipboard.writeText(lastSummary); $('copied').style.display='inline'; }
+  catch(e){ $('err').textContent='Copy failed — select and copy the results line manually.'; }
+});
+
+loadPreset('full2028');
+</script>
+</body>
+</html>
